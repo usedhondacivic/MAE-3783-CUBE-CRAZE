@@ -89,6 +89,25 @@ int readPin(int pin)
 }
 
 ///////////////////////////////////////////////////////////////////
+///////////////////////////// ISR's ///////////////////////////////
+///////////////////////////////////////////////////////////////////
+
+int half_period = 0; // half_period in clock ticks
+
+ISR(PCINT2_vect)
+{
+    // Serial.println("hit");
+    if (getBit(&PIND, 2) != 0) // Pin is now high -> rising edge
+    {
+        TCNT1 = 0; // Set timer to 0
+    }
+    else
+    {
+        half_period = TCNT1; // Read timer into variable
+    }
+}
+
+///////////////////////////////////////////////////////////////////
 //////////////////// COMMUNICATION PROTOCOLS //////////////////////
 ///////////////////////////////////////////////////////////////////
 
@@ -167,24 +186,59 @@ public:
     }
 };
 
+enum COLOR
+{
+    BLUE,
+    YELLOW,
+    BLACK
+};
+
 class ColorSensorDriver
 {
 private:
-    int outputPin, s0, s1, s2, s3;
-    int sensorReading;
+    int outputPin = 2;
+    int yellowCutoff = 200;
+    int blueCutoff = 70;
+    int blackCutoff = 0;
 
 public:
-    ColorSensorDriver(int _out, int _s0, int _s1, int _s2, int _s3)
+    ColorSensorDriver()
     {
-        outputPin = _out;
-        s0 = _s0;
-        s1 = _s1;
-        s2 = _s2;
-        s3 = _s3;
+        unsetBit(&DDRD, outputPin); // Set sensor pin to input
+
+        setBit(&PCICR, 2);          // Enable pin change interrupts for port D
+        setBit(&PCMSK2, outputPin); // Enable pin change interrupts for output pin
+
+        sei();
+
+        setBit(&TCCR1B, 0); // Enable timer 1, with no prescaling
+        // TCCR1A has correct vals for normal operation by default
     }
 
-    int getReading()
+    int getReadingRaw()
     {
+        setBit(&PCMSK2, outputPin); // Activate interrupts on the sensor pin
+        _delay_ms(5);
+        unsetBit(&PCMSK2, outputPin); // Disable interrupts on the sensor pin
+
+        return ((double)2 * (double)half_period * (double)0.0625); // 0.0625 microseconds / clock tick
+    }
+
+    COLOR getReading()
+    {
+        int color = getReadingRaw();
+        if (color < yellowCutoff)
+        {
+            return YELLOW;
+        }
+        else if (color < blueCutoff)
+        {
+            return BLUE;
+        }
+        else
+        {
+            return BLACK;
+        }
     }
 };
 
@@ -209,39 +263,80 @@ public:
 ////////////////////////// ROBOT SETUP ////////////////////////////
 ///////////////////////////////////////////////////////////////////
 
-HBridgeDriver rightWheel(11, 10);
-HBridgeDriver leftWheel(6, 5);
-
-///////////////////////////////////////////////////////////////////
-//////////////////////// CONTROL ROUTINES /////////////////////////
-///////////////////////////////////////////////////////////////////
-
-void turn_90_left()
+class Robot
 {
-    leftWheel.setSpeed(-1);
-    rightWheel.setSpeed(1);
-    _delay_ms(1000);
-    leftWheel.setSpeed(0);
-    rightWheel.setSpeed(0);
-}
+private:
+    HBridgeDriver rightWheel;
+    HBridgeDriver leftWheel;
 
-void turn_90_right()
-{
-    leftWheel.setSpeed(1);
-    rightWheel.setSpeed(-1);
-    _delay_ms(1000);
-    leftWheel.setSpeed(0);
-    rightWheel.setSpeed(0);
-}
+    ColorSensorDriver colorSense;
 
-void drive_6_inches()
-{
-    leftWheel.setSpeed(1);
-    rightWheel.setSpeed(1);
-    _delay_ms(1000);
-    leftWheel.setSpeed(0);
-    rightWheel.setSpeed(0);
-}
+public:
+    Robot()
+    {
+        rightWheel = HBridgeDriver(10, 11);
+        leftWheel = HBridgeDriver(5, 6);
+    }
+
+    void forward(int time)
+    {
+        leftWheel.setSpeed(1);
+        rightWheel.setSpeed(1);
+        delay(time);
+        leftWheel.setSpeed(0);
+        rightWheel.setSpeed(0);
+    }
+    void backward(int time)
+    {
+        leftWheel.setSpeed(-1);
+        rightWheel.setSpeed(-1);
+        delay(time);
+        leftWheel.setSpeed(0);
+        rightWheel.setSpeed(0);
+    }
+    void turnLeft(int time)
+    {
+        leftWheel.setSpeed(-1);
+        rightWheel.setSpeed(1);
+        delay(time);
+        leftWheel.setSpeed(0);
+        rightWheel.setSpeed(0);
+    }
+    void turnRight(int time)
+    {
+        leftWheel.setSpeed(1);
+        rightWheel.setSpeed(-1);
+        delay(time);
+        leftWheel.setSpeed(0);
+        rightWheel.setSpeed(0);
+    }
+
+    void mileStone3()
+    {
+        COLOR initialColor = colorSense.getReading();
+        while (1)
+        {
+            COLOR measuredColor = colorSense.getReading();
+            if (measuredColor == initialColor)
+            {
+                forward(200);
+            }
+            else if (measuredColor == BLACK)
+            {
+                backward(500);
+                turnRight(100);
+            }
+            else // Other side
+            {
+                turnRight(1200); // 180
+                forward(1000);
+                break;
+            }
+        }
+    }
+};
+
+Robot meowBot;
 
 ///////////////////////////////////////////////////////////////////
 /////////////////////// MAIN CONTROL LOOPS ////////////////////////
@@ -249,26 +344,12 @@ void drive_6_inches()
 
 int main(void)
 {
-    init(); // Needed for efficient serial
+    // init(); // Needed for efficient serial
 
     Serial.begin(115200);
     Serial.println("Hello world\n");
 
-    drive_6_inches();
-    drive_6_inches();
-    turn_90_right();
-    drive_6_inches();
-    drive_6_inches();
-    turn_90_left();
-    drive_6_inches();
-    turn_90_right();
-    turn_90_right();
-    drive_6_inches();
-    drive_6_inches();
-    drive_6_inches();
-    turn_90_right();
-    drive_6_inches();
-    drive_6_inches();
+    meowBot.mileStone3();
 
     for (;;)
     {
