@@ -178,6 +178,11 @@ public:
             PWMOne.setDutyCycle(speed);
             PWMTwo.setDutyCycle(0);
         }
+        else if (speed == 0)
+        {
+            PWMOne.setDutyCycle(0);
+            PWMTwo.setDutyCycle(0);
+        }
         else
         {
             PWMOne.setDutyCycle(0);
@@ -197,9 +202,8 @@ class ColorSensorDriver
 {
 private:
     int outputPin = 2;
-    int yellowCutoff = 200;
-    int blueCutoff = 70;
-    int blackCutoff = 0;
+    int yellowCutoff = 50;
+    int blueCutoff = 350;
 
 public:
     ColorSensorDriver()
@@ -240,6 +244,16 @@ public:
             return BLACK;
         }
     }
+
+    COLOR getAverageReading(int delay)
+    {
+        int one = getReading();
+        delayMicroseconds(delay * 1000);
+        int two = getReading();
+        delayMicroseconds(delay * 1000);
+        int three = getReading();
+        return (COLOR)round((double)(one + two + three) / 3);
+    }
 };
 
 class IMUDriver
@@ -269,44 +283,52 @@ private:
     HBridgeDriver rightWheel;
     HBridgeDriver leftWheel;
 
+public:
     ColorSensorDriver colorSense;
 
-public:
     Robot()
     {
         rightWheel = HBridgeDriver(10, 11);
-        leftWheel = HBridgeDriver(5, 6);
+        leftWheel = HBridgeDriver(6, 5);
+        colorSense = ColorSensorDriver();
     }
 
-    void forward(int time)
+    void forward()
     {
         leftWheel.setSpeed(1);
         rightWheel.setSpeed(1);
-        delay(time);
-        leftWheel.setSpeed(0);
-        rightWheel.setSpeed(0);
+        // delayMicroseconds(time * 1000);
+        // delay(time);
+        // leftWheel.setSpeed(0);
+        // rightWheel.setSpeed(0);
     }
-    void backward(int time)
+    void backward()
     {
         leftWheel.setSpeed(-1);
         rightWheel.setSpeed(-1);
-        delay(time);
-        leftWheel.setSpeed(0);
-        rightWheel.setSpeed(0);
+        // delayMicroseconds(time * 1000);
+        // leftWheel.setSpeed(0);
+        // rightWheel.setSpeed(0);
     }
-    void turnLeft(int time)
+    void turnLeft()
     {
         leftWheel.setSpeed(-1);
         rightWheel.setSpeed(1);
-        delay(time);
-        leftWheel.setSpeed(0);
-        rightWheel.setSpeed(0);
+        // delayMicroseconds(time * 1000);
+        // leftWheel.setSpeed(0);
+        // rightWheel.setSpeed(0);
     }
-    void turnRight(int time)
+    void turnRight()
     {
         leftWheel.setSpeed(1);
         rightWheel.setSpeed(-1);
-        delay(time);
+        // delayMicroseconds(time * 1000);
+        // leftWheel.setSpeed(0);
+        // rightWheel.setSpeed(0);
+    }
+
+    void disableMotors()
+    {
         leftWheel.setSpeed(0);
         rightWheel.setSpeed(0);
     }
@@ -317,19 +339,47 @@ public:
         while (1)
         {
             COLOR measuredColor = colorSense.getReading();
+            Serial.println(measuredColor);
             if (measuredColor == initialColor)
             {
-                forward(200);
+                Serial.println("Same color");
+                forward();
+                _delay_ms(200);
+                disableMotors();
             }
             else if (measuredColor == BLACK)
             {
-                backward(500);
-                turnRight(100);
+                // Serial.println("Hit black");
+                backward();
+                _delay_ms(1000);
+                turnRight();
+                _delay_ms(300);
+                disableMotors();
             }
             else // Other side
             {
-                turnRight(1200); // 180
-                forward(1000);
+                Serial.println("Hit other color?");
+                forward();
+                _delay_ms(100);
+                turnLeft();
+                _delay_ms(100);
+                disableMotors();
+                measuredColor = colorSense.getReading();
+                int measuredColorRaw = colorSense.getReadingRaw();
+                if (measuredColor == BLACK)
+                {
+                    Serial.println("Actually hit black");
+
+                    continue;
+                }
+                Serial.println("Definitely hit other color");
+                Serial.println(measuredColorRaw);
+                turnRight(); // 180
+                _delay_ms(1200);
+                forward();
+                _delay_ms(1000);
+                disableMotors();
+                _delay_ms(100);
                 break;
             }
         }
@@ -353,6 +403,9 @@ int main(void)
 
     for (;;)
     {
+        Serial.println("Done:");
+        // Serial.println(meowBot.colorSense.getReading());
+        _delay_ms(1000);
     }
 
     return 0;
